@@ -5,7 +5,9 @@ import (
 	"example-api/model"
 	"example-api/model/base"
 	"example-api/util"
+	"math"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -127,20 +129,20 @@ func UpdateRole(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-func DeleteRole(c *gin.Context){
+func DeleteRole(c *gin.Context) {
 	var role model.Role
 	response := base.BaseResponse{
 		Status:  util.Success,
 		Message: "Success delete role",
 	}
 	id := c.Query("id")
-	
+
 	var count int64
 	config.DB.Model(&model.Role{}).Where("id = ?", id).Count(&count)
 	if count == 0 {
 		response.Status = util.Failed
 		response.Message = "Role not found"
-		c.JSON(http.StatusNotFound,response)
+		c.JSON(http.StatusNotFound, response)
 		return
 	}
 
@@ -152,4 +154,73 @@ func DeleteRole(c *gin.Context){
 	}
 	response.Data = role
 	c.JSON(http.StatusOK, response)
+}
+
+// GetRolePage mengambil daftar role dengan pagination
+func GetRolePage(c *gin.Context) {
+	var roles []model.Role
+	var totalRows int64
+
+	// Ambil parameter page dan pageSize dari query string
+	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if err != nil || page < 1 {
+		page = 1
+	}
+
+	pageSize, err := strconv.Atoi(c.DefaultQuery("pageSize", "10"))
+	if err != nil || pageSize < 1 {
+		pageSize = 10
+	}
+
+	offset := (page - 1) * pageSize
+
+	// Hitung total jumlah data
+	if err := config.DB.Model(&model.Role{}).Count(&totalRows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, base.BaseResponse{
+			Status:  util.Failed,
+			Message: "Gagal menghitung total data",
+		})
+		return
+	}
+
+	// Hitung total halaman
+	totalPages := int(math.Ceil(float64(totalRows) / float64(pageSize)))
+
+	// Ambil data dengan pagination
+	if err := config.DB.Order("id ASC").Offset(offset).Limit(pageSize).Find(&roles).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, base.BaseResponse{
+			Status:  util.Failed,
+			Message: "Gagal mengambil data role",
+		})
+		return
+	}
+
+	// Jika tidak ada data di halaman tertentu
+	if len(roles) == 0 {
+		c.JSON(http.StatusOK, base.BaseResponse{
+			Status:  util.Success,
+			Message: "Tidak ada data pada halaman ini",
+			Data: base.Pagination{
+				Page:       page,
+				PageSize:   pageSize,
+				TotalRows:  totalRows,
+				TotalPages: totalPages,
+				Data:       []model.Role{},
+			},
+		})
+		return
+	}
+
+	// Format response JSON
+	c.JSON(http.StatusOK, base.BaseResponse{
+		Status:  util.Success,
+		Message: "Success get role page",
+		Data: base.Pagination{
+			Page:       page,
+			PageSize:   pageSize,
+			TotalRows:  totalRows,
+			TotalPages: totalPages,
+			Data:       roles,
+		},
+	})
 }
